@@ -1,0 +1,31 @@
+{
+    "conditions": [
+        {
+            "id": "enemy_visible",
+            "type": "compare",
+            "key": "enemy_visible",
+            "op": "==",
+            "value": true
+        },
+        {
+            "id": "has_ammo",
+            "type": "compare",
+            "key": "ammo",
+            "op": ">",
+            "value": 0
+        }
+    ],
+    "actions": [
+        {
+            "id": "shoot",
+            "type": "modify",
+            "key": "ammo",
+            "op": "-=",
+            "value": 1
+        },
+        {
+            "id": "patrol",
+            "type": "noop"
+        }
+    ]
+}

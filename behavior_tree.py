@@ -6,7 +6,7 @@ Requirements:
 - Graphviz installed (for visualization)
 
 Usage:
-    python behavior_tree.py
+    python behavior_tree.py <grammar.json> <blackboard.json> <behaviors.json>
     dot -Tpng bt.dot -o bt.png
 """
 
@@ -14,10 +14,73 @@ Usage:
 from enum import Enum, auto
 from abc import ABC, abstractmethod
 from typing import List, Optional
-from dataclasses import dataclass
+import sys
+import json
 import random
 import uuid
 
+# =========================
+# Generator Parameters
+# =========================
+
+MAX_DEPTH = 5
+CONTROL_NODE_PROB = 0.5
+GRAPHVIZ_LAYOUT = "twopi" # dot, circo, fdp, neato, osage, patchwork, twopi
+NUM_TREES = 3
+
+def load_json(path):
+    with open(path, "r") as f:
+        return json.load(f)
+
+def load_inputs():
+    if len(sys.argv) < 4:
+        print("Usage: python behavior_tree.py <grammar.json> <blackboard.json> <behaviors.json>")
+        sys.exit(1)
+
+    grammar = load_json(sys.argv[1])
+    blackboard = load_json(sys.argv[2])
+    behaviors = load_json(sys.argv[3])
+
+    print("Loaded grammar keys:", grammar.keys())
+    print("Loaded blackboard:", blackboard)
+    print("Loaded behaviors:", behaviors.keys())
+
+    return grammar, blackboard, behaviors
+
+def evaluate_condition(cond, blackboard):
+    key = cond["key"]
+    op = cond["op"]
+    value = cond["value"]
+    bb_value = blackboard.get(key)
+
+    if op == "==": return bb_value == value
+    if op == "!=": return bb_value != value
+    if op == ">":  return bb_value > value
+    if op == "<":  return bb_value < value
+    if op == ">=": return bb_value >= value
+    if op == "<=": return bb_value <= value
+
+    raise ValueError(f"Unknown operator {op}")
+
+def execute_action(action, blackboard):
+    if action["type"] == "noop":
+        return Status.SUCCESS
+
+    if action["type"] == "modify":
+        key = action["key"]
+        op = action["op"]
+        value = action["value"]
+
+        if op == "+=":
+            blackboard[key] = blackboard.get(key, 0) + value
+        elif op == "-=":
+            blackboard[key] = blackboard.get(key, 0) - value
+        else:
+            raise ValueError(f"Unknown modify op {op}")
+
+        return Status.SUCCESS
+
+    return Status.FAILURE
 
 # =========================
 # Execution Status
@@ -88,37 +151,32 @@ class Selector(BTNode):
 # =========================
 
 class Condition(BTNode):
-    def __init__(self, name, condition_fn):
+    def __init__(self, name, condition_data):
         super().__init__(name)
-        self.condition_fn = condition_fn
+        self.condition = condition_data
 
     def tick(self, blackboard):
-        self.last_status = (
-            Status.SUCCESS if self.condition_fn(blackboard) else Status.FAILURE
-        )
-        return self.last_status
-
+        return Status.SUCCESS if evaluate_condition(self.condition, blackboard) else Status.FAILURE
 
 class Action(BTNode):
-    def __init__(self, name, action_fn):
+    def __init__(self, name, action_data):
         super().__init__(name)
-        self.action_fn = action_fn
+        self.action = action_data
 
     def tick(self, blackboard):
-        self.last_status = self.action_fn(blackboard)
-        return self.last_status
+        return execute_action(self.action, blackboard)
 
 # =========================
 # Grammar-Based Generation
 # =========================
 
-GRAMMAR = {
-    "NODE": [("CONTROL", 0.8), ("LEAF", 0.2)],
-    "CONTROL": [("SEQUENCE", 0.5), ("SELECTOR", 0.5)],
-    "SEQUENCE": [("Sequence", ["NODE"])],  # children added randomly
-    "SELECTOR": [("Selector", ["NODE"])],
-    "LEAF": [("CONDITION", 0.5), ("ACTION", 0.5)],
-}
+# GRAMMAR = {
+#     "NODE": [("CONTROL", 0.8), ("LEAF", 0.2)],
+#     "CONTROL": [("SEQUENCE", 0.5), ("SELECTOR", 0.5)],
+#     "SEQUENCE": [("Sequence", ["NODE"])],  # children added randomly
+#     "SELECTOR": [("Selector", ["NODE"])],
+#     "LEAF": [("CONDITION", 0.5), ("ACTION", 0.5)],
+# }
 
 
 def weighted_choice(options):
@@ -127,35 +185,36 @@ def weighted_choice(options):
 
 def expand(symbol, depth, max_depth):
     if depth >= max_depth:
-        # Force a leaf if max depth reached
-        return (weighted_choice([("CONDITION", 0.5), ("ACTION", 0.5)]),)
+        return (weighted_choice(list(GRAMMAR["leaf"].items())),)
 
     if symbol == "NODE":
-        # Chance to branch as control or terminate as leaf
-        leaf_prob = min(0.1 + depth * 0.2, 0.9)
-        control_prob = 1 - leaf_prob
-        choice = weighted_choice([("CONTROL", control_prob), ("LEAF", leaf_prob)])
+        control_prob = CONTROL_NODE_PROB
+        leaf_prob = 1.0 - control_prob
+
+        choice = weighted_choice([
+            ("CONTROL", control_prob),
+            ("LEAF", leaf_prob)
+        ])
         return expand(choice, depth + 1, max_depth)
 
     if symbol == "CONTROL":
-        # Pick SEQUENCE or SELECTOR
-        choice = weighted_choice([("SEQUENCE", 0.5), ("SELECTOR", 0.5)])
+        choice = weighted_choice(list(GRAMMAR["control"].items()))
         return expand(choice, depth + 1, max_depth)
 
     if symbol in ("SEQUENCE", "SELECTOR"):
-        node_type, _ = GRAMMAR[symbol][0]
-        num_children = random.randint(1, 3)
+        num_children = random.randint(
+            GRAMMAR["children"]["min"],
+            GRAMMAR["children"]["max"]
+        )
         return (
-            node_type,
+            symbol,
             [expand("NODE", depth + 1, max_depth) for _ in range(num_children)]
         )
 
     if symbol == "LEAF":
-        return expand(weighted_choice([("CONDITION", 0.5), ("ACTION", 0.5)]), depth + 1, max_depth)
+        return expand(weighted_choice(list(GRAMMAR["leaf"].items())), depth + 1, max_depth)
 
-    # Terminal nodes (CONDITION/ACTION)
     return (symbol,)
-
 
 # =========================
 # Behavior Tree Container
@@ -230,36 +289,33 @@ ACTIONS = []  # filled in main
 
 def build_bt(ast):
     node_type = ast[0]
-
-    if node_type == "Sequence":
+    
+    if node_type == "SEQUENCE":
         node = Sequence("Sequence")
         for child in ast[1]:
             node.add_child(build_bt(child))
         return node
 
-    if node_type == "Selector":
+    if node_type == "SELECTOR":
         node = Selector("Selector")
         for child in ast[1]:
             node.add_child(build_bt(child))
         return node
 
     if node_type == "CONDITION":
-        name, fn = random.choice(CONDITIONS)
-        return Condition(name, fn)
+        cond = random.choice(BEHAVIORS["conditions"])
+        return Condition(cond["id"], cond)
 
     if node_type == "ACTION":
-        name, fn = random.choice(ACTIONS)
-        return Action(name, fn)
-    
-    if node_type == "LEAF":
-        return build_bt((weighted_choice(GRAMMAR["LEAF"]),))
+        act = random.choice(BEHAVIORS["actions"])
+        return Action(act["id"], act)
 
     raise ValueError(f"Unknown AST node: {ast}")
 
+
 def generate_random_tree(max_depth=5):
-    # Force the root to be a CONTROL node (Sequence or Selector)
-    root_symbol = weighted_choice([("SEQUENCE", 0.5), ("SELECTOR", 0.5)])
-    ast = expand(root_symbol, depth=0, max_depth=max_depth)
+    root_symbol = random.choice(GRAMMAR["root"])
+    ast = expand(root_symbol, 0, max_depth)
     root = build_bt(ast)
     return BehaviorTree(root)
 
@@ -270,10 +326,8 @@ def generate_random_tree(max_depth=5):
 
 if __name__ == "__main__":
     # Blackboard (game state)
-    blackboard = {
-        "enemy_visible": True,
-        "ammo": 10
-    }
+    GRAMMAR, BLACKBOARD, BEHAVIORS = load_inputs()
+    blackboard = dict(BLACKBOARD)
 
     # Conditions
     def enemy_visible(bb):
@@ -298,10 +352,51 @@ if __name__ == "__main__":
     ])
 
     # Build tree
-    tree = generate_random_tree(max_depth=7)
+    tree = generate_random_tree(max_depth=MAX_DEPTH)
 
     # Tick tree
     print("Tick result:", tree.tick(blackboard))
 
     # Visualize
     save_dot(tree)
+
+import os
+import subprocess
+
+# =========================
+# Batch Generation / Image Export (Organized Folders)
+# =========================
+
+# Generator parameters
+# NUM_TREES = 5                # How many trees to generate
+# GRAPHVIZ_LAYOUT = "dot"      # # dot, circo, fdp, neato, osage, patchwork, twopi
+OUTPUT_FOLDER = "output"     # base output folder
+
+# Create organized subfolders
+DOT_FOLDER = os.path.join(OUTPUT_FOLDER, "dot")
+PNG_FOLDER = os.path.join(OUTPUT_FOLDER, "png")
+os.makedirs(DOT_FOLDER, exist_ok=True)
+os.makedirs(PNG_FOLDER, exist_ok=True)
+
+for i in range(NUM_TREES):
+    # Generate a new tree
+    tree = generate_random_tree(max_depth=MAX_DEPTH)
+
+    # Tick the tree (optional)
+    result = tree.tick(blackboard)
+    print(f"Tree {i+1} tick result:", result)
+
+    # Save DOT file
+    dot_path = os.path.join(DOT_FOLDER, f"bt_{i+1}.dot")
+    save_dot(tree, filename=dot_path)
+
+    # Save PNG via Graphviz
+    png_path = os.path.join(PNG_FOLDER, f"bt_{i+1}.png")
+    try:
+        subprocess.run(
+            [GRAPHVIZ_LAYOUT, "-Tpng", dot_path, "-o", png_path],
+            check=True
+        )
+        print(f"[OK] Saved image {png_path}")
+    except Exception as e:
+        print(f"[ERROR] Could not generate image: {e}")
