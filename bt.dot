@@ -1,0 +1,23 @@
+digraph BehaviorTree {
+  rankdir=TB;
+  node [fontname=Helvetica];
+  "a5cfc59d71e54d8aafe413ffc698074b" [label="Sequence\nSequence\n[SUCCESS]" shape=box style="filled,rounded" fillcolor=lightblue];
+  "a5cfc59d71e54d8aafe413ffc698074b" -> "82c21a116b024b478b99711e9c77a297";
+  "82c21a116b024b478b99711e9c77a297" [label="Condition\nEnemy Visible?\n[SUCCESS]" shape=ellipse style="filled" fillcolor=palegreen];
+  "a5cfc59d71e54d8aafe413ffc698074b" -> "ebd78f730b8f47789c34ea2a642c196c";
+  "ebd78f730b8f47789c34ea2a642c196c" [label="Selector\nSelector\n[SUCCESS]" shape=box style="filled,rounded" fillcolor=khaki];
+  "ebd78f730b8f47789c34ea2a642c196c" -> "4eb1ae36900847808a137d34e627500d";
+  "4eb1ae36900847808a137d34e627500d" [label="Condition\nEnemy Visible?\n[SUCCESS]" shape=ellipse style="filled" fillcolor=palegreen];
+  "ebd78f730b8f47789c34ea2a642c196c" -> "42fedd32ba8a4c40adea56b3901e1b25";
+  "42fedd32ba8a4c40adea56b3901e1b25" [label="Condition\nHas Ammo?\n[NONE]" shape=ellipse style="filled" fillcolor=palegreen];
+  "ebd78f730b8f47789c34ea2a642c196c" -> "51a7b21bfa0342cea02f12f6643380d8";
+  "51a7b21bfa0342cea02f12f6643380d8" [label="Action\nShoot\n[NONE]" shape=ellipse style="filled" fillcolor=lightcoral];
+  "a5cfc59d71e54d8aafe413ffc698074b" -> "58b7e613b4ca49c3b7fba7bd1bcaf10c";
+  "58b7e613b4ca49c3b7fba7bd1bcaf10c" [label="Selector\nSelector\n[SUCCESS]" shape=box style="filled,rounded" fillcolor=khaki];
+  "58b7e613b4ca49c3b7fba7bd1bcaf10c" -> "79213e34f95544f7b8b3883ff7870fca";
+  "79213e34f95544f7b8b3883ff7870fca" [label="Condition\nEnemy Visible?\n[SUCCESS]" shape=ellipse style="filled" fillcolor=palegreen];
+  "58b7e613b4ca49c3b7fba7bd1bcaf10c" -> "c40a9186b22b44d7ad714ec187dbddea";
+  "c40a9186b22b44d7ad714ec187dbddea" [label="Action\nShoot\n[NONE]" shape=ellipse style="filled" fillcolor=lightcoral];
+  "58b7e613b4ca49c3b7fba7bd1bcaf10c" -> "a100a7dde78d4783800d46af0d6b79ff";
+  "a100a7dde78d4783800d46af0d6b79ff" [label="Action\nPatrol\n[NONE]" shape=ellipse style="filled" fillcolor=lightcoral];
+}
